@@ -152,6 +152,122 @@ function hritani_install_theme() {
 }
 
 /**
+ * 5) استيراد الوسائط (الصور) إلى مكتبة WP
+ * يبحث عن الصور في الثيم (assets/) ويستوردها كوسائط
+ */
+function hritani_import_media() {
+    $theme_dir  = get_template_directory();
+    $assets_dir = $theme_dir . '/assets';
+    if (!is_dir($assets_dir)) return array('imported' => 0, 'files' => array());
+
+    $imported = array();
+    $files = array(
+        'brand-sign.jpeg'  => 'شعار مجموعة حريتاني',
+        'steam-hero.png'   => 'صورة البخار الرئيسية',
+        'catalog-sheet.png'=> 'كتالوج المنتجات',
+    );
+
+    foreach ($files as $file => $title) {
+        $path = $assets_dir . '/' . $file;
+        if (!file_exists($path)) continue;
+
+        // هل موجودة مسبقاً؟
+        $existing = get_posts(array(
+            'post_type'   => 'attachment',
+            'post_status' => 'inherit',
+            'title'       => $title,
+            'posts_per_page' => 1,
+            'fields'      => 'ids',
+        ));
+        if ($existing) {
+            $imported[$file] = $existing[0];
+            continue;
+        }
+
+        // استيراد
+        $filetype = wp_check_filetype($file, null);
+        $attachment = array(
+            'post_mime_type' => $filetype['type'],
+            'post_title'     => $title,
+            'post_status'    => 'inherit',
+            'post_content'   => '',
+        );
+        $attach_id = wp_insert_attachment($attachment, $path);
+        if (!is_wp_error($attach_id)) {
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+            $attach_data = wp_generate_attachment_metadata($attach_id, $path);
+            wp_update_attachment_metadata($attach_id, $attach_data);
+            $imported[$file] = $attach_id;
+        }
+    }
+
+    return array('imported' => count($imported), 'files' => $imported);
+}
+
+/**
+ * 6) تعيين الشعار والهوية
+ */
+function hritani_setup_branding() {
+    $media = hritani_import_media();
+    if (empty($media['files'])) return;
+
+    $brand = isset($media['files']['brand-sign.jpeg']) ? $media['files']['brand-sign.jpeg'] : 0;
+
+    // الشعار المخصص (custom logo)
+    if ($brand) {
+        set_theme_mod('custom_logo', $brand);
+    }
+
+    // إعدادات هوية الموقع (site identity)
+    update_option('site_icon', $brand);  // أيقونة الموقع (favicon)
+
+    // حفظ معرفات الصور للاستخدام لاحقاً
+    update_option('hritani_media_ids', $media['files']);
+}
+
+/**
+ * 7) تطبيق الألوان (هوية HRITANI)
+ */
+function hritani_apply_colors() {
+    // ألوان الهوية
+    $colors = array(
+        'hritani_primary'       => '#233153',  // الكحلي
+        'hritani_primary_dark'  => '#182644',
+        'hritani_accent'        => '#f58220',  // البرتقالي
+        'hritani_accent_light'  => '#ff9b44',
+        'hritani_bg'            => '#f5f6f7',  // الخلفية
+        'hritani_text'          => '#18212d',  // النص
+        'hritani_muted'         => '#67717c',  // الرمادي
+    );
+    foreach ($colors as $key => $value) {
+        set_theme_mod($key, $value);
+    }
+
+    // لون الروابط الأساسي (WP core)
+    set_theme_mod('link_color', '#f58220');
+    set_theme_mod('header_textcolor', 'blank');  // إخفاء نص الـ header (نستخدم صورة الشعار)
+}
+
+/**
+ * 8) إعدادات إضافية
+ */
+function hritani_setup_extras() {
+    // واجهة نظيفة
+    update_option('blog_public', '0');  // منع الفهرسة مؤقتاً (أثناء النقل)
+    update_option('comments_notify', '0');
+    update_option('default_comment_status', 'closed');  // لا تعليقات
+    update_option('default_ping_status', 'closed');     // لا pingbacks
+
+    // رابط دائم للصفحات
+    update_option('permalink_structure', '/%postname%/');
+
+    // إخفاء صور الروابط الافتراضية الثقيلة
+    update_option('large_size_w', 1920);
+    update_option('medium_large_size_w', 1280);
+    update_option('medium_large_size_h', 720);
+}
+
+/**
  * نقطة الدخول — تفعيل البلوجن
  */
 register_activation_hook(__FILE__, function () {
@@ -159,6 +275,9 @@ register_activation_hook(__FILE__, function () {
     $theme_install = hritani_install_theme();  // يثبّت الثيم أولاً
     hritani_create_pages();
     hritani_setup_menu();
+    hritani_setup_branding();   // الوسائط + الشعار + أيقونة
+    hritani_apply_colors();     // الألوان
+    hritani_setup_extras();     // إعدادات إضافية
     set_transient('hritani_setup_result', $theme_install === true ? 'ok' : (is_wp_error($theme_install) ? $theme_install->get_error_message() : '?'), 60);
 });
 
